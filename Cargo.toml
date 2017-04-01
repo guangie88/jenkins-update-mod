@@ -1,0 +1,15 @@
+[package]
+name = "jenkins-update-mode"
+version = "0.1.0"
+authors = ["Chen Weiguang <chen.weiguang@gmail.com>"]
+
+[dependencies]
+error-chain = "0.10"
+hyper = { version = "0.10", default-features = false }
+log = "0.3"
+log4rs = "0.6"
+serde = "0.9"
+serde_derive = "0.9"
+structopt = "0.0"
+structopt-derive = "0.0"
+toml = "0.3"
