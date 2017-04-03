@@ -1,2 +1,11 @@
-# update_center_url = "http://ftp-nyc.osuosl.org/pub/jenkins/updates/current/update-center.json"
+# HTTP request the 'json' file for jenkins
 update_center_url = "http://updates.jenkins-ci.org/update-center.json"
+
+# remove the front and back temporarily for pure json parsing
+suppress_front = "updateCenter.post("
+suppress_back = ");"
+
+# url replacments
+connection_check_url_change = "http://penguin.dso"
+url_replace_from = "updates.jenkins-ci.org"
+url_replace_into = "penguin.dso/jenkins"
