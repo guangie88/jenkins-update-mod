@@ -78,7 +78,7 @@ fn change_connection_check_url<S: Into<String>>(resp_outer_map: &mut MapStrVal, 
     Ok(())
 }
 
-fn replace_url_impl(url_outer: &mut Value, outer_key: &str, url_replace_from: &str, url_replace_into: &str) -> Result<()> {
+fn replace_url_impl(url_outer: &mut Value, outer_key: &str, url_replace_from: &str, url_replace_into: &str) -> Result<String> {
     let mut url_outer_map = match url_outer {
         &mut Value::Object(ref mut url_outer_map) => url_outer_map,
         c @ _ => bail!(format!("Expected '{}' to be an object, but found content: {:?}", outer_key, c)),
@@ -94,22 +94,22 @@ fn replace_url_impl(url_outer: &mut Value, outer_key: &str, url_replace_from: &s
         c @ _ => bail!(format!("Expected '{}' to contain string value, but found content: {:?}", URL_KEY, c)),
     };
 
+    let orig_url = url_str.to_owned();
     *url_str = url_str.replace(url_replace_from, url_replace_into);
 
-    Ok(())
+    Ok(orig_url)
 }
 
-fn replace_core_url(resp_outer_map: &mut MapStrVal, url_replace_from: &str, url_replace_into: &str) -> Result<()> {
+fn replace_core_url(resp_outer_map: &mut MapStrVal, url_replace_from: &str, url_replace_into: &str) -> Result<String> {
     let mut core = match resp_outer_map.get_mut(CORE_KEY) {
         Some(core) => core,
         None => bail!(format!("Unable to find '{}' for core URL replacement", CORE_KEY)),
     };
 
-    replace_url_impl(&mut core, CORE_KEY, url_replace_from, url_replace_into)?;
-    Ok(())
+    replace_url_impl(&mut core, CORE_KEY, url_replace_from, url_replace_into)
 }
 
-fn replace_plugin_urls(resp_outer_map: &mut MapStrVal, url_replace_from: &str, url_replace_into: &str) -> Result<()> {
+fn replace_plugin_urls(resp_outer_map: &mut MapStrVal, url_replace_from: &str, url_replace_into: &str) -> Result<Vec<String>> {
     let mut plugins = match resp_outer_map.get_mut(PLUGINS_KEY) {
         Some(plugins) => plugins,
         None => bail!(format!("Unable to find '{}' for core URL replacement", CORE_KEY)),
@@ -120,11 +120,14 @@ fn replace_plugin_urls(resp_outer_map: &mut MapStrVal, url_replace_from: &str, u
         c @ _ => bail!(format!("Expected '{}' to be of object type, but found content: {:?}", PLUGINS_KEY, c)), 
     };
 
+    let mut orig_urls = Vec::new();
+
     for (key, mut plugin) in plugins_obj.iter_mut() {
-        replace_url_impl(plugin, key, url_replace_from, url_replace_into)?;
+        let orig_url = replace_url_impl(plugin, key, url_replace_from, url_replace_into)?;
+        orig_urls.push(orig_url);
     }
 
-    Ok(())
+    Ok(orig_urls)
 }
 
 fn run() -> Result<()> {
@@ -171,25 +174,39 @@ fn run() -> Result<()> {
         .chain_err(|| "Unable to parse trimmed JSON string into JSON value.")?;
 
     // to stop borrowing early
-    {
+    let (core_orig_url, plugin_urls) = {
         let mut resp_outer_map = match resp_json {
             Value::Object(ref mut resp_outer_map) => resp_outer_map,
             c @ _ => bail!(format!("Expected outer most JSON to be of Object type, but found content: {:?}", c)),
         };
 
         change_connection_check_url(&mut resp_outer_map, config.connection_check_url_change.to_owned())?;
-        replace_core_url(&mut resp_outer_map, &config.url_replace_from, &config.url_replace_into)?;
-        replace_plugin_urls(&mut resp_outer_map, &config.url_replace_from, &config.url_replace_into)?;
-    }
+        let core_orig_url = replace_core_url(&mut resp_outer_map, &config.url_replace_from, &config.url_replace_into)?;
+        let plugin_urls = replace_plugin_urls(&mut resp_outer_map, &config.url_replace_from, &config.url_replace_into)?;
 
+        (core_orig_url, plugin_urls)
+    };
+
+    // write the modified JSON file
     let mut json_file = File::create("update-center.json")
-        .chain_err(|| "Unable to open file for writing")?;
+        .chain_err(|| "Unable to open modified update-center file for writing")?;
 
     let serialized_json = serde_json::to_string(&resp_json)
         .chain_err(|| "Unable to convert modified JSON back into string for serialization")?;
 
     json_file.write_fmt(format_args!("{}", serialized_json))
-        .chain_err(|| "Unable to write to file")?;
+        .chain_err(|| "Unable to write modified serialized JSON to file")?;
+
+    let mut urls_file = File::create("urls.txt")
+        .chain_err(|| "Unable to open file for writing URLs")?;
+
+    urls_file.write_fmt(format_args!("{}\n", core_orig_url))
+        .chain_err(|| format!("Unable to write core url into file: {}", core_orig_url))?;
+
+    for plugin_url in plugin_urls.iter() {
+        urls_file.write_fmt(format_args!("{}\n", plugin_url))
+            .chain_err(|| format!("Unable to write plugin URL into file: {}", plugin_url))?;
+    }
 
     Ok(())
 }
