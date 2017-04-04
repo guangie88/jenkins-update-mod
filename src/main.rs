@@ -110,6 +110,20 @@ fn replace_core_url(resp_outer_map: &mut MapStrVal, url_replace_from: &str, url_
 }
 
 fn replace_plugin_urls(resp_outer_map: &mut MapStrVal, url_replace_from: &str, url_replace_into: &str) -> Result<()> {
+    let mut plugins = match resp_outer_map.get_mut(PLUGINS_KEY) {
+        Some(plugins) => plugins,
+        None => bail!(format!("Unable to find '{}' for core URL replacement", CORE_KEY)),
+    };
+
+    let mut plugins_obj = match plugins {
+        &mut Value::Object(ref mut plugins_obj) => plugins_obj,
+        c @ _ => bail!(format!("Expected '{}' to be of object type, but found content: {:?}", PLUGINS_KEY, c)), 
+    };
+
+    for (key, mut plugin) in plugins_obj.iter_mut() {
+        replace_url_impl(plugin, key, url_replace_from, url_replace_into)?;
+    }
+
     Ok(())
 }
 
