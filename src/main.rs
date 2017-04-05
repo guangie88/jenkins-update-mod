@@ -19,6 +19,7 @@ use hyper::client::{Client, RedirectPolicy};
 use serde_json::{Map, Value};
 use std::fs::File;
 use std::io::{self, Read, Write};
+use std::path::PathBuf;
 use std::process;
 use structopt::StructOpt;
 
@@ -43,6 +44,8 @@ struct FileConfig {
     connection_check_url_change: String,
     url_replace_from: String,
     url_replace_into: String,
+    modified_json_file_path: PathBuf,
+    url_list_json_file_path: PathBuf,
 }
 
 #[derive(StructOpt, Debug)]
@@ -174,7 +177,7 @@ fn run() -> Result<()> {
         .chain_err(|| "Unable to parse trimmed JSON string into JSON value.")?;
 
     // to stop borrowing early
-    let (core_orig_url, plugin_urls) = {
+    let (core_orig_url, mut plugin_urls) = {
         let mut resp_outer_map = match resp_json {
             Value::Object(ref mut resp_outer_map) => resp_outer_map,
             c @ _ => bail!(format!("Expected outer most JSON to be of Object type, but found content: {:?}", c)),
@@ -187,8 +190,13 @@ fn run() -> Result<()> {
         (core_orig_url, plugin_urls)
     };
 
+    // combine both the core + plugin links
+    let mut urls = vec![core_orig_url];
+    urls.append(&mut plugin_urls);
+    let urls = urls;
+
     // write the modified JSON file
-    let mut json_file = File::create("update-center.json")
+    let mut json_file = File::create(&config.modified_json_file_path)
         .chain_err(|| "Unable to open modified update-center file for writing")?;
 
     let serialized_json = serde_json::to_string(&resp_json)
@@ -197,16 +205,14 @@ fn run() -> Result<()> {
     json_file.write_fmt(format_args!("{}", serialized_json))
         .chain_err(|| "Unable to write modified serialized JSON to file")?;
 
-    let mut urls_file = File::create("urls.txt")
+    let mut urls_file = File::create(&config.url_list_json_file_path)
         .chain_err(|| "Unable to open file for writing URLs")?;
 
-    urls_file.write_fmt(format_args!("{}\n", core_orig_url))
-        .chain_err(|| format!("Unable to write core url into file: {}", core_orig_url))?;
+    let urls_json = serde_json::to_string_pretty(&urls)
+        .chain_err(|| "Unable to convert list of URLs into pretty JSON form")?;
 
-    for plugin_url in plugin_urls.iter() {
-        urls_file.write_fmt(format_args!("{}\n", plugin_url))
-            .chain_err(|| format!("Unable to write plugin URL into file: {}", plugin_url))?;
-    }
+    urls_file.write_fmt(format_args!("{}", urls_json))
+        .chain_err(|| "Unable to write URLs in JSON form into file")?;
 
     Ok(())
 }

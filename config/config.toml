@@ -9,3 +9,7 @@ suppress_back = ");"
 connection_check_url_change = "http://penguin.dso"
 url_replace_from = "updates.jenkins-ci.org"
 url_replace_into = "penguin.dso/jenkins"
+
+# json output
+modified_json_file_path = "output/update-center.json" 
+url_list_json_file_path = "output/url-list.json"
