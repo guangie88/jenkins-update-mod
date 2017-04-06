@@ -17,9 +17,9 @@ extern crate toml;
 
 use hyper::client::{Client, RedirectPolicy};
 use serde_json::{Map, Value};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 use structopt::StructOpt;
 
@@ -44,6 +44,7 @@ struct FileConfig {
     connection_check_url_change: String,
     url_replace_from: String,
     url_replace_into: String,
+    auto_create_output_dir: bool,
     modified_json_file_path: PathBuf,
     url_list_json_file_path: PathBuf,
 }
@@ -196,6 +197,32 @@ fn run() -> Result<()> {
     let urls = urls;
 
     // write the modified JSON file
+    if config.auto_create_output_dir {
+        let create_parent_dir_if_present = |dir_opt: Option<&Path>| {
+            let dir_opt = dir_opt.and_then(|dir| {
+                // ignore if the directory has already been created
+                match Path::new(dir).is_dir() {
+                    true => None,
+                    false => Some(dir),
+                }
+            });
+
+            match dir_opt {
+                Some(dir) => {
+                    info!("Creating directory chain: {:?}", dir);
+
+                    fs::create_dir_all(dir)
+                        .chain_err(|| format!("Unable to create directory chain: {:?}", dir))
+                },
+
+                None => Ok(())
+            }
+        };
+
+        create_parent_dir_if_present(config.modified_json_file_path.parent())?;
+        create_parent_dir_if_present(config.url_list_json_file_path.parent())?;
+    }
+    
     let mut json_file = File::create(&config.modified_json_file_path)
         .chain_err(|| "Unable to open modified update-center file for writing")?;
 

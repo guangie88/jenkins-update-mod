@@ -11,5 +11,6 @@ url_replace_from = "updates.jenkins-ci.org"
 url_replace_into = "penguin.dso/jenkins"
 
 # json output
+auto_create_output_dir = true
 modified_json_file_path = "output/update-center.json" 
 url_list_json_file_path = "output/url-list.json"

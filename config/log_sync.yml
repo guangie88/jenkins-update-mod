@@ -11,11 +11,11 @@ appenders:
   # An appender named "rolling" that writes to a rolling file with a custom pattern encoder
   rolling:
     kind: rolling_file
-    path: "log/comm_service.log"
+    path: "log/jenkins-sync.log"
     policy:
       roller:
         kind: fixed_window
-        pattern: "log/comm_service.log.{}"
+        pattern: "log/jenkins-sync.log.{}"
         base: 1
         count: 10
       trigger:

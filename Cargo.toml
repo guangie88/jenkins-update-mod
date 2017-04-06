@@ -3,6 +3,14 @@ name = "jenkins-update-mode"
 version = "0.1.0"
 authors = ["Chen Weiguang <chen.weiguang@gmail.com>"]
 
+[[bin]]
+name = "jenkins-mod"
+path = "src/jenkins-mod-main.rs"
+
+[[bin]]
+name = "jenkins-sync"
+path = "src/jenkins-sync-main.rs"
+
 [dependencies]
 error-chain = "0.10"
 hyper = { version = "0.10", default-features = false }
@@ -14,3 +22,4 @@ serde_json = "0.9"
 structopt = "0.0"
 structopt-derive = "0.0"
 toml = "0.3"
+url = "1.4"

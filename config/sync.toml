@@ -1,0 +1,2 @@
+sync_root_dir_path = "sync-root"
+url_list_json_file_path = "output/url-list.json"
