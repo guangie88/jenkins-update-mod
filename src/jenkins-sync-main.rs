@@ -1,10 +1,13 @@
 #[macro_use]
 extern crate error_chain;
+extern crate futures;
+extern crate futures_cpupool;
 extern crate hyper;
 
 #[macro_use]
 extern crate log;
 extern crate log4rs;
+extern crate progress;
 
 #[macro_use]
 extern crate serde_derive;
@@ -16,8 +19,11 @@ extern crate structopt_derive;
 extern crate toml;
 extern crate url;
 
-use hyper::client::{Client, RedirectPolicy};
-use serde_json::{Map, Value};
+use futures::Future;
+use futures_cpupool::CpuPool;
+use hyper::client::Client;
+use hyper::header::ContentLength;
+use progress::Bar;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -38,6 +44,7 @@ use errors::*;
 struct FileConfig {
     sync_root_dir_path: String,
     url_list_json_file_path: PathBuf,
+    download_thread_count: u32,
 }
 
 #[derive(StructOpt, Debug)]
@@ -80,7 +87,7 @@ fn run() -> Result<()> {
     let urls: Vec<String> = serde_json::from_str(&urls_str)
         .chain_err(|| format!("Error in parsing URL list from {:?}", config.url_list_json_file_path))?;
 
-    let urls: Vec<_> = urls.into_iter()
+    let url_download_path_pairs = urls.into_iter()
         .map(|url| Url::parse(&url))
         .inspect(|url_res| {
             // log any erroneous URL and continue
@@ -89,104 +96,106 @@ fn run() -> Result<()> {
             }
         })
         .filter_map(|url_res| url_res.ok())
+        .map(|url| {
+            let download_path = format!("{}{}", config.sync_root_dir_path, url.path());
+            (url, download_path)
+        });
+
+    let pool = CpuPool::new(config.download_thread_count as usize); 
+
+    let download_futs: Vec<_> = url_download_path_pairs
+        .map(|(url, download_path)| {
+            pool.spawn_fn(move || {
+                let thread_run = move || -> Result<()> {
+                    // performs HTTP request to get the file
+                    let client = Client::new();
+                    let url_str = format!("{}", url);
+
+                    let mut resp = client.get(url).send()
+                        .chain_err(|| "Unable to perform HTTP request with URL")?;
+
+                    let content_len = match resp.headers.get::<ContentLength>() {
+                        Some(content_len) => content_len.0,
+                        None => bail!("Unable to obtain HTTP response content length"),
+                    };
+
+                    let download_path_parent = match Path::new(&download_path).parent() {
+                        Some(path) => path,
+                        None => bail!("Unable to get parent path of download path '{}'", download_path),
+                    };
+
+                    // check against existing file entry if present for similar content length
+                    let found_file_len = {
+                        let found_file_metadata = match Path::new(&download_path).exists() {
+                            true => fs::metadata(&download_path).ok(),
+                            false => None,
+                        };
+
+                        found_file_metadata.map(|meta| meta.len())
+                    };
+
+                    let same_content_opt = found_file_len.and_then(|file_len| {
+                        match file_len == content_len {
+                            true => Some(()),
+                            false => None,
+                        }
+                    });
+
+                    match found_file_len {
+                        Some(_) => info!("Content length {} of HTTP request '{}' same as file length of '{}', not downloading...", content_len, url_str, download_path),
+                        None => {
+                            info!("Downloading '{}' -> '{}'", url_str, download_path);
+
+                            fs::create_dir_all(download_path_parent)
+                                .chain_err(|| format!("Unable to create directory chain {:?}", download_path_parent))?;
+
+                            let mut download_file = File::create(&download_path)
+                                .chain_err(|| format!("Unable to create file at '{}' for saving URL response", download_path))?;
+
+                            let mut resp_bytes = [0; 128 * 1024];
+
+//                             let mut bar = Bar::new();
+//                             bar.set_job_title("Downloading...");
+
+                            let mut read_len = 0;
+
+                            loop {
+                                let read_res = resp.read(&mut resp_bytes);
+
+                                match read_res {
+                                    Ok(0) => break,
+                                    Ok(len) => { read_len = read_len + len; },
+                                    Err(e) => {
+                                        error!("Unable to read some response content bytes: {}", e);
+                                        break;
+                                    },
+                                }
+
+//                                 bar.reach_percent(((read_len * 100) as u64 / content_len) as i32);
+
+                                download_file.write_all(&resp_bytes)
+                                    .chain_err(|| format!("Unable to write bytes into download file path '{}'", download_path))?;
+                            }
+                        },
+                    }
+
+                    Ok(())
+                };
+
+                let thread_res = thread_run();
+
+                if let Err(ref e) = thread_res {
+                    error!("Download error: {}", e);
+                }
+
+                thread_res
+            })
+        })
         .collect();
 
-    let url_paths: Vec<_> = urls.iter()
-        .map(|url| format!("{}{}", config.sync_root_dir_path, url.path()))
-        .collect();
-
-    let mut json_file = File::create("url_paths.json")
-        .chain_err(|| "Unable to open modified update-center file for writing")?;
-
-    let serialized_json = serde_json::to_string_pretty(&url_paths)
-        .chain_err(|| "Unable to convert modified JSON back into string for serialization")?;
-
-    json_file.write_fmt(format_args!("{}", serialized_json))
-        .chain_err(|| "Unable to write modified serialized JSON to file")?;
-    
-//     let mut client = Client::new();
-//     client.set_redirect_policy(RedirectPolicy::FollowAll);
-// 
-//     let mut resp = client.get(&config.update_center_url).send()
-//         .chain_err(|| format!("Unable to perform HTTP request with URL string '{}'", config.update_center_url))?;
-// 
-//     let mut resp_str = String::new();
-//     resp.read_to_string(&mut resp_str)
-//         .chain_err(|| "Unable to read HTTP response into string")?;
-// 
-//     let resp_str = resp_str;
-// 
-//     let trimmed_resp_str = resp_str
-//         .trim_left_matches(&config.suppress_front)
-//         .trim_right_matches(&config.suppress_back);
-// 
-//     // JSON parsing all the way
-//     let mut resp_json: Value = serde_json::from_str(trimmed_resp_str)
-//         .chain_err(|| "Unable to parse trimmed JSON string into JSON value.")?;
-// 
-//     // to stop borrowing early
-//     let (core_orig_url, mut plugin_urls) = {
-//         let mut resp_outer_map = match resp_json {
-//             Value::Object(ref mut resp_outer_map) => resp_outer_map,
-//             c @ _ => bail!(format!("Expected outer most JSON to be of Object type, but found content: {:?}", c)),
-//         };
-// 
-//         change_connection_check_url(&mut resp_outer_map, config.connection_check_url_change.to_owned())?;
-//         let core_orig_url = replace_core_url(&mut resp_outer_map, &config.url_replace_from, &config.url_replace_into)?;
-//         let plugin_urls = replace_plugin_urls(&mut resp_outer_map, &config.url_replace_from, &config.url_replace_into)?;
-// 
-//         (core_orig_url, plugin_urls)
-//     };
-// 
-//     // combine both the core + plugin links
-//     let mut urls = vec![core_orig_url];
-//     urls.append(&mut plugin_urls);
-//     let urls = urls;
-// 
-//     // write the modified JSON file
-//     if config.auto_create_output_dir {
-//         let create_parent_dir_if_present = |dir_opt: Option<&Path>| {
-//             let dir_opt = dir_opt.and_then(|dir| {
-//                 // ignore if the directory has already been created
-//                 match Path::new(dir).is_dir() {
-//                     true => None,
-//                     false => Some(dir),
-//                 }
-//             });
-// 
-//             match dir_opt {
-//                 Some(dir) => {
-//                     info!("Creating directory chain: {:?}", dir);
-// 
-//                     fs::create_dir_all(dir)
-//                         .chain_err(|| format!("Unable to create directory chain: {:?}", dir))
-//                 },
-// 
-//                 None => Ok(())
-//             }
-//         };
-// 
-//         create_parent_dir_if_present(config.modified_json_file_path.parent())?;
-//         create_parent_dir_if_present(config.url_list_json_file_path.parent())?;
-//     }
-//     
-//     let mut json_file = File::create(&config.modified_json_file_path)
-//         .chain_err(|| "Unable to open modified update-center file for writing")?;
-// 
-//     let serialized_json = serde_json::to_string(&resp_json)
-//         .chain_err(|| "Unable to convert modified JSON back into string for serialization")?;
-// 
-//     json_file.write_fmt(format_args!("{}", serialized_json))
-//         .chain_err(|| "Unable to write modified serialized JSON to file")?;
-// 
-//     let mut urls_file = File::create(&config.url_list_json_file_path)
-//         .chain_err(|| "Unable to open file for writing URLs")?;
-// 
-//     let urls_json = serde_json::to_string_pretty(&urls)
-//         .chain_err(|| "Unable to convert list of URLs into pretty JSON form")?;
-// 
-//     urls_file.write_fmt(format_args!("{}", urls_json))
-//         .chain_err(|| "Unable to write URLs in JSON form into file")?;
+    for download_fut in download_futs.into_iter() {
+        let _ = download_fut.wait();
+    }
 
     Ok(())
 }

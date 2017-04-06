@@ -26,10 +26,6 @@ use structopt::StructOpt;
 mod errors {
     error_chain! {
         errors {
-            // ClientMapRead {
-            //     description("error in reading client map")
-            //     display("error in reading client map")
-            // }
         }
     }
 }

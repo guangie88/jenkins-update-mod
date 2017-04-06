@@ -13,9 +13,12 @@ path = "src/jenkins-sync-main.rs"
 
 [dependencies]
 error-chain = "0.10"
+futures = "0.1"
+futures-cpupool = "0.1"
 hyper = { version = "0.10", default-features = false }
 log = "0.3"
 log4rs = "0.6"
+progress = "0.2"
 serde = "0.9"
 serde_derive = "0.9"
 serde_json = "0.9"

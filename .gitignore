@@ -10,3 +10,5 @@ Cargo.lock
 log/
 update-center.json
 *.txt
+*.hpi
+*.war
