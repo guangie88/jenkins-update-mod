@@ -7,7 +7,6 @@ extern crate hyper;
 #[macro_use]
 extern crate log;
 extern crate log4rs;
-extern crate progress;
 
 #[macro_use]
 extern crate serde_derive;
@@ -23,7 +22,6 @@ use futures::Future;
 use futures_cpupool::CpuPool;
 use hyper::client::Client;
 use hyper::header::ContentLength;
-use progress::Bar;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -141,7 +139,7 @@ fn run() -> Result<()> {
                         }
                     });
 
-                    match found_file_len {
+                    match same_content_opt {
                         Some(_) => info!("Content length {} of HTTP request '{}' same as file length of '{}', not downloading...", content_len, url_str, download_path),
                         None => {
                             info!("Downloading '{}' -> '{}'", url_str, download_path);
@@ -152,28 +150,26 @@ fn run() -> Result<()> {
                             let mut download_file = File::create(&download_path)
                                 .chain_err(|| format!("Unable to create file at '{}' for saving URL response", download_path))?;
 
-                            let mut resp_bytes = [0; 128 * 1024];
-
-//                             let mut bar = Bar::new();
-//                             bar.set_job_title("Downloading...");
-
-                            let mut read_len = 0;
+                            // 512 KB
+                            let mut resp_bytes = [0; 512 * 1024];
+                            let mut acc_read_len = 0;
 
                             loop {
                                 let read_res = resp.read(&mut resp_bytes);
 
-                                match read_res {
+                                let read_len = match read_res {
                                     Ok(0) => break,
-                                    Ok(len) => { read_len = read_len + len; },
                                     Err(e) => {
                                         error!("Unable to read some response content bytes: {}", e);
                                         break;
                                     },
-                                }
+                                    Ok(len) => {
+                                        acc_read_len = acc_read_len + len;
+                                        len
+                                    },
+                                };
 
-//                                 bar.reach_percent(((read_len * 100) as u64 / content_len) as i32);
-
-                                download_file.write_all(&resp_bytes)
+                                download_file.write_all(&resp_bytes[..read_len])
                                     .chain_err(|| format!("Unable to write bytes into download file path '{}'", download_path))?;
                             }
                         },

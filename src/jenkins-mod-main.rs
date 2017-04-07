@@ -225,7 +225,9 @@ fn run() -> Result<()> {
     let serialized_json = serde_json::to_string(&resp_json)
         .chain_err(|| "Unable to convert modified JSON back into string for serialization")?;
 
-    json_file.write_fmt(format_args!("{}", serialized_json))
+    // need to append back the trimmed left and right sides
+
+    json_file.write_fmt(format_args!("{}{}{}", config.suppress_front, serialized_json, config.suppress_back))
         .chain_err(|| "Unable to write modified serialized JSON to file")?;
 
     let mut urls_file = File::create(&config.url_list_json_file_path)
