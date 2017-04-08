@@ -17,17 +17,20 @@ extern crate structopt;
 extern crate structopt_derive;
 extern crate toml;
 extern crate url;
+extern crate walkdir;
 
 use futures::Future;
 use futures_cpupool::CpuPool;
 use hyper::client::Client;
 use hyper::header::ContentLength;
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use structopt::StructOpt;
 use url::Url;
+use walkdir::WalkDir;
 
 mod errors {
     error_chain! {
@@ -42,6 +45,7 @@ use errors::*;
 struct FileConfig {
     sync_root_dir_path: String,
     url_list_json_file_path: PathBuf,
+    accepted_file_exts: Vec<String>,
     download_thread_count: u32,
 }
 
@@ -53,6 +57,14 @@ struct ArgConfig {
 
     #[structopt(short = "l", long = "log-config", help = "Log configuration file path")]
     log_config_path: String,
+}
+
+fn remove_parents(dir_path: &Path) {
+    let res = fs::remove_dir(dir_path);
+
+    if let Ok(_) = res {
+        remove_parents(dir_path.parent().unwrap());
+    }
 }
 
 fn run() -> Result<()> {
@@ -85,7 +97,7 @@ fn run() -> Result<()> {
     let urls: Vec<String> = serde_json::from_str(&urls_str)
         .chain_err(|| format!("Error in parsing URL list from {:?}", config.url_list_json_file_path))?;
 
-    let url_download_path_pairs = urls.into_iter()
+    let url_download_path_pairs: Vec<_> = urls.into_iter()
         .map(|url| Url::parse(&url))
         .inspect(|url_res| {
             // log any erroneous URL and continue
@@ -97,11 +109,70 @@ fn run() -> Result<()> {
         .map(|url| {
             let download_path = format!("{}{}", config.sync_root_dir_path, url.path());
             (url, download_path)
-        });
+        })
+        .collect();
 
+    // find all the existing paths for possible deletion for unused files
+    let filtered_paths: HashSet<_> = WalkDir::new(&config.sync_root_dir_path).into_iter()
+        .filter_map(|entry| {
+            match entry {
+                Ok(entry) => {
+                    let accepted = match entry.path().extension() {
+                        Some(ext) => {
+                            config.accepted_file_exts.iter()
+                                .any(|accepted_file_ext| {
+                                    ext == accepted_file_ext.as_str()
+                                })
+                        },
+                        None => false,
+                    };
+
+                    if accepted {
+                        Some(entry)
+                    } else {
+                        None
+                    }
+                },
+
+                Err(ref e) => {
+                    error!("Error in walking entry: {}", e);
+                    None
+                },
+            }
+        })
+        .map(|entry| -> PathBuf {
+            entry.path().to_owned()
+        })
+        .collect();
+
+    let to_download_paths: HashSet<_> = url_download_path_pairs.iter()
+        .map(|&(_, ref download_path)| {
+            PathBuf::from(download_path)
+        })
+        .collect();
+
+    let unused_paths = filtered_paths.difference(&to_download_paths);
+
+    for unused_path in unused_paths {
+        let res = fs::remove_file(unused_path);
+
+        match res {
+            Ok(_) => {
+                info!("Remove unused file at {:?}", unused_path);
+
+                // continue to attempt to remove as much empty parent directories as possible
+                if let Some(parent_dir_path) = unused_path.parent() {
+                    remove_parents(parent_dir_path);
+                }
+            },
+            Err(e) => error!("Unable to remove unused file: {}", e),
+        }
+    }
+
+    // starts the download process
     let pool = CpuPool::new(config.download_thread_count as usize); 
 
-    let download_futs: Vec<_> = url_download_path_pairs
+    let download_futs: Vec<_> = url_download_path_pairs.into_iter()
         .map(|(url, download_path)| {
             pool.spawn_fn(move || {
                 let thread_run = move || -> Result<()> {

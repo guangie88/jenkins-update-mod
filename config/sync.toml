@@ -1,3 +1,4 @@
 sync_root_dir_path = "jenkins"
 url_list_json_file_path = "output/url-list.json"
+accepted_file_exts = [ "war", "hpi" ]
 download_thread_count = 8 
