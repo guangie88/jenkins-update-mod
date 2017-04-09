@@ -113,37 +113,43 @@ fn run() -> Result<()> {
         .collect();
 
     // find all the existing paths for possible deletion for unused files
-    let filtered_paths: HashSet<_> = WalkDir::new(&config.sync_root_dir_path).into_iter()
-        .filter_map(|entry| {
-            match entry {
-                Ok(entry) => {
-                    let accepted = match entry.path().extension() {
-                        Some(ext) => {
-                            config.accepted_file_exts.iter()
-                                .any(|accepted_file_ext| {
-                                    ext == accepted_file_ext.as_str()
-                                })
-                        },
-                        None => false,
-                    };
+    let sync_root_dir = Path::new(&config.sync_root_dir_path);
 
-                    if accepted {
-                        Some(entry)
-                    } else {
+    let filtered_paths: HashSet<_> = if sync_root_dir.is_dir() {
+        WalkDir::new(&config.sync_root_dir_path).into_iter()
+            .filter_map(|entry| {
+                match entry {
+                    Ok(entry) => {
+                        let accepted = match entry.path().extension() {
+                            Some(ext) => {
+                                config.accepted_file_exts.iter()
+                                    .any(|accepted_file_ext| {
+                                        ext == accepted_file_ext.as_str()
+                                    })
+                            },
+                            None => false,
+                        };
+
+                        if accepted {
+                            Some(entry)
+                        } else {
+                            None
+                        }
+                    },
+
+                    Err(ref e) => {
+                        error!("Error in walking entry: {}", e);
                         None
-                    }
-                },
-
-                Err(ref e) => {
-                    error!("Error in walking entry: {}", e);
-                    None
-                },
-            }
-        })
-        .map(|entry| -> PathBuf {
-            entry.path().to_owned()
-        })
-        .collect();
+                    },
+                }
+            })
+            .map(|entry| -> PathBuf {
+                entry.path().to_owned()
+            })
+            .collect()
+    } else {
+        HashSet::new()
+    };
 
     let to_download_paths: HashSet<_> = url_download_path_pairs.iter()
         .map(|&(_, ref download_path)| {
