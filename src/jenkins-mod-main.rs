@@ -2,9 +2,9 @@
 extern crate error_chain;
 extern crate hyper;
 
+extern crate log4rs;
 #[macro_use]
 extern crate log;
-extern crate log4rs;
 
 #[macro_use]
 extern crate serde_derive;
@@ -56,42 +56,69 @@ struct ArgConfig {
 }
 
 // const key names
-const CONNECTION_CHECK_URL_KEY: &'static str = "connectionCheckUrl";
-const CORE_KEY: &'static str = "core";
-const PLUGINS_KEY: &'static str = "plugins";
-const URL_KEY: &'static str = "url";
+const CONNECTION_CHECK_URL_KEY: &str = "connectionCheckUrl";
+const CORE_KEY: &str = "core";
+const PLUGINS_KEY: &str = "plugins";
+const URL_KEY: &str = "url";
 
 type MapStrVal = Map<String, Value>;
 
-fn change_connection_check_url<S: Into<String>>(resp_outer_map: &mut MapStrVal, connection_check_url_change: S) -> Result<()> {
+fn change_connection_check_url<S: Into<String>>(
+    resp_outer_map: &mut MapStrVal,
+    connection_check_url_change: S,
+) -> Result<()> {
     let connection_check_url = match resp_outer_map.get_mut(CONNECTION_CHECK_URL_KEY) {
         Some(connection_check_url) => connection_check_url,
-        None => bail!(format!("Unable to find '{}' for changing connection URL", CONNECTION_CHECK_URL_KEY)),
+        None => bail!(format!(
+            "Unable to find '{}' for changing connection URL",
+            CONNECTION_CHECK_URL_KEY
+        )),
     };
 
-    let mut connection_check_url = match connection_check_url {
+    let connection_check_url = match connection_check_url {
         &mut Value::String(ref mut connection_check_url) => connection_check_url,
-        c @ _ => bail!(format!("Expected '{}' to contain string value, but found content: {:?}", CONNECTION_CHECK_URL_KEY, c)),
+        c => bail!(format!(
+            "Expected '{}' to contain string value, but found content: {:?}",
+            CONNECTION_CHECK_URL_KEY,
+            c
+        )),
     };
 
     *connection_check_url = connection_check_url_change.into();
     Ok(())
 }
 
-fn replace_url_impl(url_outer: &mut Value, outer_key: &str, url_replace_from: &str, url_replace_into: &str) -> Result<String> {
-    let mut url_outer_map = match url_outer {
+fn replace_url_impl(
+    url_outer: &mut Value,
+    outer_key: &str,
+    url_replace_from: &str,
+    url_replace_into: &str,
+) -> Result<String> {
+    let url_outer_map = match url_outer {
         &mut Value::Object(ref mut url_outer_map) => url_outer_map,
-        c @ _ => bail!(format!("Expected '{}' to be an object, but found content: {:?}", outer_key, c)),
+        c => bail!(format!(
+            "Expected '{}' to be an object, but found content: {:?}",
+            outer_key,
+            c
+        )),
     };
 
-    let mut url = match url_outer_map.get_mut(URL_KEY) {
+    let url = match url_outer_map.get_mut(URL_KEY) {
         Some(url) => url,
-        None => bail!(format!("Expected '{}' to be present for '{}'", URL_KEY, CORE_KEY)),
+        None => bail!(format!(
+            "Expected '{}' to be present for '{}'",
+            URL_KEY,
+            CORE_KEY
+        )),
     };
 
-    let mut url_str = match url {
+    let url_str = match url {
         &mut Value::String(ref mut url_str) => url_str,
-        c @ _ => bail!(format!("Expected '{}' to contain string value, but found content: {:?}", URL_KEY, c)),
+        c => bail!(format!(
+            "Expected '{}' to contain string value, but found content: {:?}",
+            URL_KEY,
+            c
+        )),
     };
 
     let orig_url = url_str.to_owned();
@@ -100,24 +127,42 @@ fn replace_url_impl(url_outer: &mut Value, outer_key: &str, url_replace_from: &s
     Ok(orig_url)
 }
 
-fn replace_core_url(resp_outer_map: &mut MapStrVal, url_replace_from: &str, url_replace_into: &str) -> Result<String> {
+fn replace_core_url(
+    resp_outer_map: &mut MapStrVal,
+    url_replace_from: &str,
+    url_replace_into: &str,
+) -> Result<String> {
     let mut core = match resp_outer_map.get_mut(CORE_KEY) {
         Some(core) => core,
-        None => bail!(format!("Unable to find '{}' for core URL replacement", CORE_KEY)),
+        None => bail!(format!(
+            "Unable to find '{}' for core URL replacement",
+            CORE_KEY
+        )),
     };
 
     replace_url_impl(&mut core, CORE_KEY, url_replace_from, url_replace_into)
 }
 
-fn replace_plugin_urls(resp_outer_map: &mut MapStrVal, url_replace_from: &str, url_replace_into: &str) -> Result<Vec<String>> {
-    let mut plugins = match resp_outer_map.get_mut(PLUGINS_KEY) {
+fn replace_plugin_urls(
+    resp_outer_map: &mut MapStrVal,
+    url_replace_from: &str,
+    url_replace_into: &str,
+) -> Result<Vec<String>> {
+    let plugins = match resp_outer_map.get_mut(PLUGINS_KEY) {
         Some(plugins) => plugins,
-        None => bail!(format!("Unable to find '{}' for core URL replacement", CORE_KEY)),
+        None => bail!(format!(
+            "Unable to find '{}' for core URL replacement",
+            CORE_KEY
+        )),
     };
 
-    let mut plugins_obj = match plugins {
+    let plugins_obj = match plugins {
         &mut Value::Object(ref mut plugins_obj) => plugins_obj,
-        c @ _ => bail!(format!("Expected '{}' to be of object type, but found content: {:?}", PLUGINS_KEY, c)), 
+        c => bail!(format!(
+            "Expected '{}' to be of object type, but found content: {:?}",
+            PLUGINS_KEY,
+            c
+        )),
     };
 
     let mut orig_urls = Vec::new();
@@ -133,22 +178,35 @@ fn replace_plugin_urls(resp_outer_map: &mut MapStrVal, url_replace_from: &str, u
 fn run() -> Result<()> {
     let arg_config = ArgConfig::from_args();
 
-    let _ = log4rs::init_file(&arg_config.log_config_path, Default::default())
-       .chain_err(|| format!("Unable to initialize log4rs logger with the given config file at '{}'", arg_config.log_config_path))?;
+    log4rs::init_file(&arg_config.log_config_path, Default::default()).chain_err(|| {
+        format!(
+            "Unable to initialize log4rs logger with the given config file at '{}'",
+            arg_config.log_config_path
+        )
+    })?;
 
     let config_str = {
-        let mut config_file = File::open(&arg_config.config_path)
-            .chain_err(|| format!("Unable to open config file path at {:?}", arg_config.config_path))?;
+        let mut config_file = File::open(&arg_config.config_path).chain_err(|| {
+            format!(
+                "Unable to open config file path at {:?}",
+                arg_config.config_path
+            )
+        })?;
 
         let mut s = String::new();
 
-        config_file.read_to_string(&mut s)
+        config_file
+            .read_to_string(&mut s)
             .map(|_| s)
             .chain_err(|| "Unable to read config file into string")?
     };
 
-    let config: FileConfig = toml::from_str(&config_str)
-        .chain_err(|| format!("Unable to parse config as required toml format: {}", config_str))?;
+    let config: FileConfig = toml::from_str(&config_str).chain_err(|| {
+        format!(
+            "Unable to parse config as required toml format: {}",
+            config_str
+        )
+    })?;
 
     info!("Completed configuration initialization!");
 
@@ -156,8 +214,12 @@ fn run() -> Result<()> {
     let mut client = Client::new();
     client.set_redirect_policy(RedirectPolicy::FollowAll);
 
-    let mut resp = client.get(&config.update_center_url).send()
-        .chain_err(|| format!("Unable to perform HTTP request with URL string '{}'", config.update_center_url))?;
+    let mut resp = client.get(&config.update_center_url).send().chain_err(|| {
+        format!(
+            "Unable to perform HTTP request with URL string '{}'",
+            config.update_center_url
+        )
+    })?;
 
     let mut resp_str = String::new();
     resp.read_to_string(&mut resp_str)
@@ -177,12 +239,26 @@ fn run() -> Result<()> {
     let (core_orig_url, mut plugin_urls) = {
         let mut resp_outer_map = match resp_json {
             Value::Object(ref mut resp_outer_map) => resp_outer_map,
-            c @ _ => bail!(format!("Expected outer most JSON to be of Object type, but found content: {:?}", c)),
+            c => bail!(format!(
+                "Expected outer most JSON to be of Object type, but found content: {:?}",
+                c
+            )),
         };
 
-        change_connection_check_url(&mut resp_outer_map, config.connection_check_url_change.to_owned())?;
-        let core_orig_url = replace_core_url(&mut resp_outer_map, &config.url_replace_from, &config.url_replace_into)?;
-        let plugin_urls = replace_plugin_urls(&mut resp_outer_map, &config.url_replace_from, &config.url_replace_into)?;
+        change_connection_check_url(
+            &mut resp_outer_map,
+            config.connection_check_url_change.to_owned(),
+        )?;
+        let core_orig_url = replace_core_url(
+            &mut resp_outer_map,
+            &config.url_replace_from,
+            &config.url_replace_into,
+        )?;
+        let plugin_urls = replace_plugin_urls(
+            &mut resp_outer_map,
+            &config.url_replace_from,
+            &config.url_replace_into,
+        )?;
 
         (core_orig_url, plugin_urls)
     };
@@ -197,9 +273,10 @@ fn run() -> Result<()> {
         let create_parent_dir_if_present = |dir_opt: Option<&Path>| {
             let dir_opt = dir_opt.and_then(|dir| {
                 // ignore if the directory has already been created
-                match Path::new(dir).is_dir() {
-                    true => None,
-                    false => Some(dir),
+                if Path::new(dir).is_dir() {
+                    None
+                } else {
+                    Some(dir)
                 }
             });
 
@@ -209,16 +286,16 @@ fn run() -> Result<()> {
 
                     fs::create_dir_all(dir)
                         .chain_err(|| format!("Unable to create directory chain: {:?}", dir))
-                },
+                }
 
-                None => Ok(())
+                None => Ok(()),
             }
         };
 
         create_parent_dir_if_present(config.modified_json_file_path.parent())?;
         create_parent_dir_if_present(config.url_list_json_file_path.parent())?;
     }
-    
+
     let mut json_file = File::create(&config.modified_json_file_path)
         .chain_err(|| "Unable to open modified update-center file for writing")?;
 
@@ -227,7 +304,13 @@ fn run() -> Result<()> {
 
     // need to append back the trimmed left and right sides
 
-    json_file.write_fmt(format_args!("{}{}{}", config.suppress_front, serialized_json, config.suppress_back))
+    json_file
+        .write_fmt(format_args!(
+            "{}{}{}",
+            config.suppress_front,
+            serialized_json,
+            config.suppress_back
+        ))
         .chain_err(|| "Unable to write modified serialized JSON to file")?;
 
     let mut urls_file = File::create(&config.url_list_json_file_path)
@@ -236,7 +319,8 @@ fn run() -> Result<()> {
     let urls_json = serde_json::to_string_pretty(&urls)
         .chain_err(|| "Unable to convert list of URLs into pretty JSON form")?;
 
-    urls_file.write_fmt(format_args!("{}", urls_json))
+    urls_file
+        .write_fmt(format_args!("{}", urls_json))
         .chain_err(|| "Unable to write URLs in JSON form into file")?;
 
     Ok(())
@@ -247,13 +331,12 @@ fn main() {
         Ok(_) => {
             println!("Program completed!");
             process::exit(0)
-        },
+        }
 
         Err(ref e) => {
             let stderr = &mut io::stderr();
 
-            writeln!(stderr, "Error: {}", e)
-                .expect("Unable to write error into stderr!");
+            writeln!(stderr, "Error: {}", e).expect("Unable to write error into stderr!");
 
             for e in e.iter().skip(1) {
                 writeln!(stderr, "- Caused by: {}", e)
@@ -261,6 +344,6 @@ fn main() {
             }
 
             process::exit(1);
-        },
+        }
     }
 }

@@ -1,6 +1,6 @@
 [package]
-name = "jenkins-update-mode"
-version = "0.1.0"
+name = "jenkins-update-mod"
+version = "0.1.1"
 authors = ["Chen Weiguang <chen.weiguang@gmail.com>"]
 
 [[bin]]
